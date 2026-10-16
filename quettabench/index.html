@@ -203,6 +203,13 @@ html.theming *, html.theming *::before, html.theming *::after { transition:backg
   .cfgt .tag { display:none; }
   .cfgt > tbody > tr:not(.xp) > td { padding-left:10px; padding-right:10px; }
 }
+.tgtw { display:flex; align-items:center; gap:10px; min-width:170px; }
+.tgtw b { min-width:3ch; font:600 13px var(--mono); color:var(--ink); text-align:right; }
+.tgt { -webkit-appearance:none; appearance:none; width:120px; height:4px; border-radius:2px; background:linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 50%) 100% no-repeat, var(--rule); cursor:pointer; }
+.tgt::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:var(--panel); border:2px solid var(--accent); box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .15s; }
+.tgt::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--panel); border:2px solid var(--accent); }
+.tgt:active::-webkit-slider-thumb, .tgt:focus-visible::-webkit-slider-thumb { transform:scale(1.15); }
+.tgt:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
 .eff .gdot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:10px; vertical-align:1px; }
 .eff td.l small { padding-left:18px; }
 .eff .spd { display:inline-flex; align-items:center; gap:8px; font:500 13px var(--mono); }
@@ -306,7 +313,6 @@ select.auto { width:auto; min-width:150px; }
 .seg.dis { opacity:.45; pointer-events:none; }
 .pcard .lbl { font:500 11px var(--mono); color:var(--muted); margin-bottom:8px; }
 .cmpsel { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font:500 12px var(--mono); }
-input.tgt { width:88px; height:32px; padding:0 8px; font:500 12.5px var(--mono); }
 .wgroups { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
 .wgroup { padding:20px 24px 10px; }
 .wgroup h3 { margin-bottom:8px; }
@@ -493,7 +499,7 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
   .btn { height:44px; } select, input[type=number], input[type=search] { height:44px; } .search { height:52px; }
   .seg button { height:42px; } .strip .seg { height:44px; } .strip .seg button { height:42px; }
   .chip { height:42px; padding:0 14px; } .lgi { padding:10px 6px; } .lptop button { padding:10px 8px; }
-  .iconbtn { padding:10px; } .sw { min-height:44px; } input.tgt { height:40px; }
+  .iconbtn { padding:10px; } .sw { min-height:44px; }
   .tabs button { padding-bottom:14px; padding-top:6px; } details.how summary { padding:6px 0; }
   .stepbar select, select.auto { min-height:44px; }
 }
@@ -640,11 +646,6 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
   </div>
   <div class="card detail" id="stepDetail"></div>
 
-  <div class="sect" style="margin-top:44px">
-    <h2>Prefill and decode rates</h2>
-    <p class="lede" id="rateDef"></p>
-    <div class="card hard scroll" style="margin-top:14px"><table id="rateTable"></table></div>
-  </div>
 
 </section>
 </main>
@@ -1375,11 +1376,26 @@ function compare(rows) {
   const num = (v, d, alt = "-") => v == null ? alt : `<span data-n="${v}" data-d="${d}">${fmt(v, d)}</span>`;
   const cells = r => r ? [num(r.out_tps_gpu, 0), num(M.cost_out.g(r), 3, "set price"), `${esc(shortLayout(r))} c${r.concurrency ?? "-"}`] : ["-", "-", "-"];
   const head = g => `<span class="dot" style="background:${gpuColor(g)}"></span>${esc(gpuLabel(g))}`;
+  const top = Math.max(1, Math.ceil(Math.max(...rows.map(speed).filter(x => x != null && isFinite(x)))));
+  const rowCells = t => { const A = best(c.a, t), B = best(c.b, t);
+    return [...cells(A).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`), ...cells(B).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`)].join("") + `<td>${A && B ? num(A.out_tps_gpu / B.out_tps_gpu, 2) + "x" : "-"}</td>`; };
   $("cmpTable").innerHTML = `<thead><tr><th class="l">At \u2265 N tok/s/user ${S.pct.toUpperCase()}</th><th>${head(c.a)} out tok/s/GPU</th><th>$/M output (${BASIS_TAG[S.basis]})</th><th class="l">Config</th><th>${head(c.b)} out tok/s/GPU</th><th>$/M output (${BASIS_TAG[S.basis]})</th><th class="l">Config</th><th>${esc(gpuLabel(c.a))} / ${esc(gpuLabel(c.b))}</th></tr></thead><tbody>` +
-    c.t.map((t, i) => { const A = best(c.a, t), B = best(c.b, t);
-      return `<tr style="cursor:default"><td class="l"><input type="number" class="tgt" min="0" value="${t}" data-i="${i}"></td>${[...cells(A).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`), ...cells(B).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`)].join("")}<td>${A && B ? num(A.out_tps_gpu / B.out_tps_gpu, 2) + "x" : "-"}</td></tr>`; }).join("") + "</tbody>";
+    c.t.map((t, i) => `<tr style="cursor:default"><td class="l"><label class="tgtw"><input type="range" class="tgt" min="1" max="${top}" step="1" value="${Math.min(t, top)}" data-i="${i}" aria-label="Target tok/s/user ${i + 1}"><b>${t}</b></label></td>${rowCells(t)}</tr>`).join("") + "</tbody>";
   tweenNums($("cmpTable"));
-  $("cmpTable").querySelectorAll(".tgt").forEach(i => i.onchange = () => { const v = parseFloat(i.value); if (v >= 0) { c.t[+i.dataset.i] = v; compare(rows); } });
+  // dragging updates its own row and the chart in place, so the slider keeps focus
+  $("cmpTable").querySelectorAll(".tgt").forEach(i => {
+    const fill = () => i.style.setProperty("--p", `${100 * (i.value - i.min) / (i.max - i.min || 1)}%`);
+    fill();
+    i.onpointerdown = i.onfocus = () => { if (c.active !== +i.dataset.i) { c.active = +i.dataset.i; drawCompare(rows, c); } };
+    i.oninput = () => {
+      const v = +i.value, tr = i.closest("tr");
+      c.active = +i.dataset.i;
+      c.t[+i.dataset.i] = v; i.nextElementSibling.textContent = v; fill();
+      while (tr.cells.length > 1) tr.deleteCell(1);
+      tr.insertAdjacentHTML("beforeend", rowCells(v));
+      drawCompare(rows, c);
+    };
+  });
 }
 /* compare chart: one frontier per GPU on interactivity, target guides with the ratio between the two curves */
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -1398,9 +1414,19 @@ const guidePlugin = {
     c.$gTo.forEach((_, i) => {
       const g = guideAt(c, i), px = X.getPixelForValue(g.t);
       if (px < a.left - 1 || px > a.right + 1) return;
-      ctx.strokeStyle = rgba(THEME.muted, .55); ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); ctx.setLineDash([]);
-      if (px - lastLabel > 34) { ctx.fillStyle = THEME.muted; ctx.textAlign = "left"; ctx.fillText(`\u2265${fmt(g.t, 0)}`, Math.min(px + 4, a.right - 30), a.top + 9); lastLabel = px; }
-      if (!g.a || !g.b) return;
+      const on = i === c.$gActive, acc = css("--accent");
+      // the target being dragged: tint the region that meets it and draw its guide in the accent colour
+      if (on) { ctx.fillStyle = rgba(acc, .06); ctx.fillRect(px, a.top, a.right - px, a.bottom - a.top); }
+      ctx.strokeStyle = on ? acc : rgba(THEME.muted, .55); ctx.lineWidth = on ? 1.6 : 1; ctx.setLineDash(on ? [] : [4, 4]); ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); ctx.setLineDash([]);
+      if (on || px - lastLabel > 34) { ctx.font = `${on ? 600 : 500} 10.5px 'IBM Plex Mono', monospace`; ctx.fillStyle = on ? acc : THEME.muted; ctx.textAlign = "left"; ctx.fillText(`\u2265${fmt(g.t, 0)}`, Math.min(px + 4, a.right - 30), a.top + 9); lastLabel = px; ctx.font = "500 10.5px 'IBM Plex Mono', monospace"; }
+      if (!g.a || !g.b) {
+        if (on && (g.a || g.b)) {
+          const miss = gpuLabel(g.a ? c.$gNames[1] : c.$gNames[0]), text = `no ${miss} run this fast`, w = ctx.measureText(text).width + 14, x = Math.max(a.left + 2, Math.min(px + 6, a.right - w - 2));
+          pill(ctx, x, a.top + 20, w, 17); ctx.fillStyle = THEME.panel; ctx.fill(); ctx.strokeStyle = rgba(THEME.muted, .6); ctx.lineWidth = 1; ctx.stroke();
+          ctx.fillStyle = THEME.muted; ctx.textAlign = "left"; ctx.fillText(text, x + 7, a.top + 29);
+        }
+        return;
+      }
       const ys = [g.a, g.b].map(p => Y.getPixelForValue(p.y));
       [g.a, g.b].forEach((p, k) => {
         const qx = X.getPixelForValue(p.x);
@@ -1435,7 +1461,7 @@ function drawCompare(rows, c) {
   o.plugins.tooltip.callbacks.label = ctx => { const r = ctx.raw.r; return r ? [`${shortLayout(r)} \u00b7 ${r.concurrency ?? "-"} concurrent`, `${M.interactivity.s}: ${fmt(ctx.raw.x, 1)}   ${M[yk].s}: ${fmt(ctx.raw.y, M[yk].d)}`] : ""; };
   const live = charts.cmpChart, prev = live && live.$gTo ? live.$gTo.map((_, i) => guideAt(live, i)) : null;
   const ch = chart("cmpChart", { data: { datasets: ds }, options: o }, first);
-  ch.$gCols = cols; ch.$gTo = guides; ch.$gFrom = prev || guides; ch.$gT = 1;
+  ch.$gCols = cols; ch.$gNames = [c.a, c.b]; ch.$gActive = c.active; ch.$gTo = guides; ch.$gFrom = prev || guides; ch.$gT = 1;
   if (prev && !REDUCED) {
     ch.$gT = 0; const run = ch.$gRun = (ch.$gRun || 0) + 1, t0 = performance.now();
     const step = now => { if (run !== ch.$gRun || charts.cmpChart !== ch || !ch.canvas) return; const p = Math.min(1, (now - t0) / 420); ch.$gT = 1 - Math.pow(1 - p, 3); ch.draw(); if (p < 1) requestAnimationFrame(step); };
@@ -1545,7 +1571,6 @@ function kernel() {
   if (cur) f.sel = runKey(cur);
   $("stepDetail").classList.toggle("on", !!cur);
   if (cur) runDetail(cur);
-  rateTable(f);
 }
 
 function runDetail(r) {
@@ -1558,18 +1583,6 @@ function runDetail(r) {
     <div class="scroll" style="margin-top:14px"><table><thead><tr><th class="l">Operation</th><th>ms</th><th>Share</th></tr></thead><tbody>${ops}</tbody></table></div>${trace}</div></div>`;
 }
 
-function rateTable(f) {
-  const rs = DATA.rates.filter(r => (f.model === "All" || r.model === f.model) && (f.gpu === "All" || r.gpu === f.gpu));
-  const [c1, c2] = Object.keys(DATA.rates[0].decode), ref = DATA.rates[0];
-  $("rateDef").textContent = `Prefill rates from Fixed 8K prefill at concurrency 16. Decode from Mooncake traces, mean ${fmt(ref.isl, 0)} in and ${fmt(ref.osl, 0)} out tokens. Decode GPUs per prefill GPU = (prefill in tok/s per GPU \u00f7 mean input) \u00f7 (decode out tok/s per GPU \u00f7 mean output).`;
-  const row = r => `<tr style="cursor:default"><td class="l"><span class="dot" style="background:${gpuColor(r.gpu)}"></span><b>${esc(gpuLabel(r.gpu))} \u00d7${r.n}</b> ${esc(shortName(r.model))}<small style="display:block">${esc(layoutText(r))}</small></td>
-    <td>${fmt(r.prefill_in_tps, 0)}</td><td>${fmt(r.prefill_ttft_p50, 0)}</td>
-    ${[c1, c2].map(c => `<td>${fmt(r.decode[c].out_tps, 0)}</td><td>${fmt(r.decode[c].interactivity, 0)}</td>`).join("")}
-    ${[c1, c2].map(c => `<td>${fmt(r.decode[c].per_prefill, 1)}</td>`).join("")}</tr>`;
-  $("rateTable").innerHTML = `<thead><tr><th class="l" rowspan="2">Config</th><th colspan="2">Fixed 8K prefill, concurrency 16</th><th colspan="2">Decode, concurrency ${c1}</th><th colspan="2">Decode, concurrency ${c2}</th><th colspan="2">Decode GPUs per prefill GPU</th></tr>
-    <tr><th>In tok/s/GPU</th><th>TTFT P50 ms</th><th>Out tok/s/GPU</th><th>tok/s/user P50</th><th>Out tok/s/GPU</th><th>tok/s/user P50</th><th>at ${c1}</th><th>at ${c2}</th></tr></thead>
-    <tbody>${rs.map(row).join("") || `<tr><td class="empty" colspan="9">No configs for this selection.</td></tr>`}</tbody>`;
-}
 
 $("stepUnit").querySelectorAll("button").forEach(b => b.onclick = () => { S.step.unit = b.dataset.v; kernel(); });
 $("kGpu").onchange = e => { S.step.gpu = e.target.value; kernel(); };
