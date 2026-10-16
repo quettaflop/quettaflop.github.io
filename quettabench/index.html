@@ -279,7 +279,7 @@ select option, select optgroup { background:var(--panel); color:var(--ink); }
 .dd > select { position:absolute; inset:0; width:100%; height:100%; opacity:0; pointer-events:none; }
 .ddb { position:relative; display:block; width:100%; height:40px; padding:0 34px 0 12px; text-align:left; font:500 13.5px/1.2 var(--sans); border:1px solid var(--rule); border-radius:var(--r); background:var(--panel); color:var(--ink); cursor:pointer;
   transition:border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast), transform var(--dur-fast) var(--ease-out); }
-.ddo.none { opacity:.42; }
+.ddo.none { opacity:.35; cursor:not-allowed; }
 .ddv { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .ddb::after { content:""; position:absolute; right:14px; top:50%; width:6px; height:6px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:translateY(-70%) rotate(45deg); transition:transform 240ms var(--ease-out); }
 .dd.open .ddb::after { transform:translateY(-25%) rotate(225deg); }
@@ -812,7 +812,7 @@ async function route() {
       if (tok !== routeTok) return;
       S.model = m; S.gpus = S.engs = null; S.hide = new Set(); S.cmp.t = null;
       const linked = b && uniq(ROWS.map(r => r.workload)).find(w => slug(w) === b);
-      if (linked) S.workload = linked;
+      if (linked) S.workload = S.wantWorkload = linked;
     }
     dashboard();
     requestAnimationFrame(() => { dash.classList.remove("loading"); dash.removeAttribute("aria-busy"); });
@@ -999,10 +999,17 @@ function dashboard() {
   mr.forEach(r => { cnt[r.workload] = (cnt[r.workload] || 0) + 1; (gpusOf[r.workload] ||= new Set()).add(r.gpu); });
   wls.sort((a, b) => gpusOf[b].size - gpusOf[a].size || cnt[b] - cnt[a]);
   const rowOf = w => mr.find(r => r.workload === w);
-  if (S.benchPick) { S.workload = wls.find(w => rowOf(w).bench === S.benchPick) || S.benchPick; S.benchPick = null; S.cmp.t = null; }
+  if (S.benchPick) { S.workload = wls.find(w => rowOf(w).bench === S.benchPick) || S.benchPick; S.wantWorkload = S.workload; S.benchPick = null; S.cmp.t = null; }
+  // the viewer's workload stays chosen across models; a model that never ran it shows the closest one it did run
+  S.wantWorkload ||= S.workload;
+  if (wls.includes(S.wantWorkload)) S.workload = S.wantWorkload;
+  else if (wls.length) {
+    const cat = (DATA.workloads.find(([w]) => w === S.wantWorkload) || [])[1];
+    S.workload = DATA.workloads.map(([w, c]) => [w, c]).filter(([w, c]) => wls.includes(w)).sort((a, b) => (b[1] === cat) - (a[1] === cat))[0][0];
+  }
   if (S.sel && !mr.includes(S.sel)) closeDetail();
-  // Every model lists the same workloads in the same order; ones it never ran are dimmed.
-  const wOpt = w => `<option value="${esc(w)}" ${wls.includes(w) ? "" : "data-none=1"} ${w === S.workload ? "selected" : ""}>${esc(w)}</option>`;
+  // Every model lists the same workloads in the same order; ones it never ran are greyed out and cannot be picked.
+  const wOpt = w => `<option value="${esc(w)}" ${wls.includes(w) ? "" : "data-none=1 disabled"} ${w === S.workload ? "selected" : ""}>${esc(w)}</option>`;
   $("wSel").innerHTML = GROUPS.map(g => `<optgroup label="${esc(g)}">${DATA.workloads.filter(([, c]) => c === g).map(([w]) => wOpt(w)).join("")}</optgroup>`).join("");
   const precs = ["All", ...uniq(mr.filter(r => r.workload === S.workload).map(r => r.precision))];
   if (!precs.includes(S.precision)) precs.push(S.precision);
@@ -1526,7 +1533,7 @@ function setBasis(v) {
 const bindBasis = () => document.querySelectorAll(".basisSeg button").forEach(b => b.onclick = () => setBasis(b.dataset.v));
 
 $("mSel").onchange = e => { location.hash = `#/dashboard/${MODELS.find(m => m.model === e.target.value).slug}`; };
-$("wSel").onchange = e => { closeDetail(); S.workload = e.target.value; S.gpus = S.engs = null; S.hide = new Set(); dashboard(); };
+$("wSel").onchange = e => { closeDetail(); S.workload = S.wantWorkload = e.target.value; S.gpus = S.engs = null; S.hide = new Set(); dashboard(); };
 $("pSel").onchange = e => { S.precision = e.target.value; renderDash(); };
 $("xSel").onchange = e => { S.x = e.target.value; renderDash(); };
 $("ySel").onchange = e => { S.y = e.target.value; renderDash(); };
@@ -1975,7 +1982,7 @@ function enhance(sel) {
   };
   const build = () => {
     inner.innerHTML = ""; inner.append(hl); opts = []; let n = 0;
-    const add = o => { const el = document.createElement("div"); el.className = "ddo" + (o.dataset.none ? " none" : ""); el.setAttribute("role", "option"); el.textContent = o.textContent; el._o = o; el.style.setProperty("--i", Math.min(n++, 8)); inner.append(el); opts.push(el); };
+    const add = o => { const el = document.createElement("div"); el.className = "ddo" + (o.dataset.none ? " none" : ""); el.setAttribute("role", "option"); if (o.disabled) el.setAttribute("aria-disabled", "true"); el.textContent = o.textContent; el._o = o; el.style.setProperty("--i", Math.min(n++, 8)); inner.append(el); opts.push(el); };
     [...sel.children].forEach(c => {
       if (c.tagName === "OPTGROUP") { const g = document.createElement("div"); g.className = "ddg" + (inner.children.length === 1 ? " first" : ""); g.textContent = c.label; inner.append(g); [...c.children].forEach(add); }
       else add(c);
@@ -1998,7 +2005,9 @@ function enhance(sel) {
     light(Math.max(0, cur), true); opts[Math.max(0, cur)]?.scrollIntoView({ block: "nearest" });
   };
   const pick = i => {
-    const o = opts[i]?._o; closeDd(); btn.focus({ preventScroll: true });
+    const o = opts[i]?._o;
+    if (o?.disabled) return;  // greyed-out entries stay in the list for context but cannot be chosen
+    closeDd(); btn.focus({ preventScroll: true });
     if (!o || o === sel.selectedOptions[0]) return;
     sel.value = o.value; sel.dispatchEvent(new Event("change", { bubbles: true }));
   };
