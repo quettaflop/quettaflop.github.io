@@ -1422,7 +1422,12 @@ function compare(rows) {
   const sl = $("cmpTable").querySelector(".tgt"), fill = () => sl.style.setProperty("--p", `${100 * (sl.value - 1) / (top - 1 || 1)}%`);
   fill();
   // dragging redraws the readout and the chart guide in place, so the slider keeps focus
-  sl.oninput = () => { const v = +sl.value; c.t = [v]; sl.nextElementSibling.textContent = `\u2265 ${v}`; fill(); $("cmpTable").querySelector(".cmpcards").innerHTML = read(v); drawCompare(rows, c); };
+  let frame = 0;
+  sl.oninput = () => {
+    c.t = [+sl.value]; sl.nextElementSibling.textContent = `\u2265 ${sl.value}`; fill();
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; $("cmpTable").querySelector(".cmpcards").innerHTML = read(c.t[0]); moveGuide(c); });
+  };
 }
 /* compare chart: one frontier per GPU on interactivity, target guides with the ratio between the two curves */
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -1472,6 +1477,14 @@ const guidePlugin = {
   },
 };
 Chart.register(guidePlugin);
+const guideAtLine = (s, t) => { const v = onLine(s.front, t); return v && { x: Math.max(t, s.front[0].x), y: v.y }; };
+const guidesAt = (sides, ts) => ts.map(t => { const a = guideAtLine(sides[0], t), b = guideAtLine(sides[1], t); return { t, a, b, ratio: a && b && b.y ? a.y / b.y : null }; });
+// slider drag: move the guide on the existing chart without rebuilding it, so the lines stay still
+function moveGuide(c) {
+  const ch = charts.cmpChart; if (!ch || !ch.$gSides) return;
+  ch.$gRun = (ch.$gRun || 0) + 1; ch.$gTo = guidesAt(ch.$gSides, c.t); ch.$gFrom = ch.$gTo; ch.$gT = 1; ch.$gActive = 0;
+  ch.draw();
+}
 function drawCompare(rows, c) {
   const yk = S.y, by = M[yk].b || 1;
   const side = g => { const pts = rows.filter(r => r.gpu === g).map(r => ({ x: M.interactivity.g(r), y: M[yk].g(r), r })).filter(p => p.x != null && p.y != null && isFinite(p.x) && isFinite(p.y)); return { g, pts, front: pareto(pts, 1, by) }; };
@@ -1480,15 +1493,14 @@ function drawCompare(rows, c) {
   const ds = sides.flatMap((s, i) => [
     { label: gpuLabel(s.g), type: "scatter", data: s.front, borderColor: cols[i], backgroundColor: cols[i], pointRadius: 4.5, pointHoverRadius: 7, pointHitRadius: 10, borderWidth: 1.6, order: 1 },
     { label: gpuLabel(s.g) + " line", type: "line", data: s.front.length > 1 ? s.front : [], borderColor: cols[i], borderWidth: 2.4, pointRadius: 0, pointHitRadius: 0, tension: 0, borderDash: i ? [6, 4] : [], order: 2 }]);
-  const at = (s, t) => { const v = onLine(s.front, t); return v && { x: Math.max(t, s.front[0].x), y: v.y }; };
-  const guides = c.t.map(t => { const a = at(sides[0], t), b = at(sides[1], t); return { t, a, b, ratio: a && b && b.y ? a.y / b.y : null }; });
+  const guides = guidesAt(sides, c.t);
   const first = !charts.cmpChart;
   const o = common(false, first);
   o.scales = { x: axis("interactivity"), y: axis(yk) };
   o.plugins.tooltip.callbacks.label = ctx => { const r = ctx.raw.r; return r ? [`${shortLayout(r)} \u00b7 ${r.concurrency ?? "-"} concurrent`, `${M.interactivity.s}: ${fmt(ctx.raw.x, 1)}   ${M[yk].s}: ${fmt(ctx.raw.y, M[yk].d)}`] : ""; };
   const live = charts.cmpChart, prev = live && live.$gTo ? live.$gTo.map((_, i) => guideAt(live, i)) : null;
   const ch = chart("cmpChart", { data: { datasets: ds }, options: o }, first);
-  ch.$gCols = cols; ch.$gNames = [c.a, c.b]; ch.$gActive = c.active; ch.$gTo = guides; ch.$gFrom = prev || guides; ch.$gT = 1;
+  ch.$gCols = cols; ch.$gSides = sides; ch.$gNames = [c.a, c.b]; ch.$gActive = c.active; ch.$gTo = guides; ch.$gFrom = prev || guides; ch.$gT = 1;
   if (prev && !REDUCED) {
     ch.$gT = 0; const run = ch.$gRun = (ch.$gRun || 0) + 1, t0 = performance.now();
     const step = now => { if (run !== ch.$gRun || charts.cmpChart !== ch || !ch.canvas) return; const p = Math.min(1, (now - t0) / 420); ch.$gT = 1 - Math.pow(1 - p, 3); ch.draw(); if (p < 1) requestAnimationFrame(step); };
