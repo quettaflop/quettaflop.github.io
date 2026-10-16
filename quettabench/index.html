@@ -61,7 +61,8 @@ h3 { font-size:17px; font-weight:700; letter-spacing:-.025em; }
 .subnav a.on { color:var(--ink); }
 .subnav a::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--accent); transform:scaleX(0); transform-origin:0 center; transition:transform .25s cubic-bezier(.22,1,.36,1); }
 .subnav a.on::after { transform:scaleX(1); }
-@media (max-width:759px) { .subnav { gap:1.25rem; } }
+@media (max-width:759px) { .subnav { gap:.85rem; } .subnav a { font-size:12.5px; } }
+@media (max-width:380px) { .subnav { gap:.6rem; } .subnav a { font-size:12px; } }
 .nav-icon { display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:50%; background:none; color:var(--ink); cursor:pointer; transition:background .2s, transform .2s; }
 .nav-icon:hover { background:var(--well); transform:translateY(-2px); }
 .theme-toggle svg { width:23px; height:23px; grid-area:1 / 1; }
