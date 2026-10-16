@@ -203,6 +203,26 @@ html.theming *, html.theming *::before, html.theming *::after { transition:backg
   .cfgt .tag { display:none; }
   .cfgt > tbody > tr:not(.xp) > td { padding-left:10px; padding-right:10px; }
 }
+.cmpread { padding:6px 20px 20px; }
+.cmpslide { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 0 16px; }
+.cmpslide .k { font:500 10.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+.cmpslide .tgt { flex:1; min-width:160px; max-width:520px; }
+.cmpslide b { font:600 15px var(--mono); color:var(--accent); min-width:6ch; }
+.cmpslide .u { font:500 12px var(--mono); color:var(--muted); }
+.cmpcards { display:grid; grid-template-columns:1fr 1fr .8fr; gap:12px; }
+@media (max-width:760px) { .cmpcards { grid-template-columns:1fr; } .cmpread { padding:4px 12px 14px; } .rc { padding:12px 14px; } .rc .rcv { font-size:22px; } }
+.rc { border:1px solid var(--rule); border-radius:12px; padding:14px 16px; background:var(--panel); transition:border-color .2s; }
+.rc .rg { display:flex; align-items:center; gap:8px; font:600 12px var(--mono); color:var(--ink); }
+.rc .rg .dot { margin:0; }
+.rc .rcv { margin-top:8px; font:600 26px/1.1 var(--mono); letter-spacing:-.02em; color:var(--ink); font-variant-numeric:tabular-nums; }
+.rc .rcv small { margin-left:6px; font:500 11px var(--mono); color:var(--muted); letter-spacing:0; }
+.rc .rs { margin-top:4px; font:600 13.5px var(--mono); color:var(--ink); }
+.rc .rs small { font:500 11px var(--mono); color:var(--muted); }
+.rc .rn { margin-top:8px; font:500 11.5px var(--sans); color:var(--muted); }
+.rc.est { border-style:dashed; }
+.rc.none .rcv, .rc.none .rs { color:var(--muted); }
+.rc.ratio { background:var(--panel2); }
+.rc.ratio .rcv { color:var(--accent); }
 .tgtw { display:flex; align-items:center; gap:10px; min-width:170px; }
 .tgtw b { min-width:3ch; font:600 13px var(--mono); color:var(--ink); text-align:right; }
 .tgt { -webkit-appearance:none; appearance:none; width:120px; height:4px; border-radius:2px; background:linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 50%) 100% no-repeat, var(--rule); cursor:pointer; }
@@ -617,7 +637,7 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
     <div class="charthead"><div><h3>Compare two GPUs</h3><div class="sub" id="cmpSub"></div></div>
       <div class="cmpsel"><select id="cmpA" class="auto"></select><span>vs</span><select id="cmpB" class="auto"></select><div class="seg basisSeg"><button data-v="own" title="3-year ownership cost per GPU-hour">Own</button><button data-v="rent" title="Rental price per GPU-hour">Rent</button></div></div></div>
     <div id="cmpChartWrap"><div class="cmplg" id="cmpLg"></div><div class="chartbox cmpbox skelbox"><canvas id="cmpChart"></canvas></div></div>
-    <div class="scroll skelbox" style="padding:6px 0 6px; min-height:150px"><table id="cmpTable"></table></div>
+    <div class="skelbox" style="min-height:150px" id="cmpTable"></div>
   </div>
 </section>
 
@@ -1019,6 +1039,16 @@ function tokenPrices() {
   $("tokPrices").querySelectorAll("input").forEach(i => i.oninput = () => { TOKP[i.dataset.k] = Math.max(0, parseFloat(i.value) || 0); try { localStorage.setItem("qb-tokprices", JSON.stringify(TOKP)); } catch (e) {} renderDash(); });
 }
 
+// value of a frontier (sorted by x) at x = t: interpolated between measured points,
+// extrapolated from the last segment up to 25% past the fastest run, otherwise null
+function onLine(f, t) {
+  if (!f.length) return null;
+  if (t <= f[0].x) return { y: f[0].y, r: f[0].r, exact: t === f[0].x || f.length === 1 };
+  for (let i = 1; i < f.length; i++) if (t <= f[i].x) { const a = f[i - 1], b = f[i], u = (t - a.x) / (b.x - a.x); return { y: a.y + (b.y - a.y) * u, r: (u < .5 ? a : b).r, exact: u === 1 }; }
+  const L = f[f.length - 1]; if (f.length < 2 || t > L.x * 1.25) return null;
+  const P = f[f.length - 2], y = L.y + (L.y - P.y) / (L.x - P.x) * (t - L.x);
+  return y > 0 ? { y, r: L.r, est: true, last: L.x } : null;
+}
 function pareto(pts, bx, by) {
   return pts.filter(p => !pts.some(q => q !== p && bx * q.x >= bx * p.x && by * q.y >= by * p.y && (bx * q.x > bx * p.x || by * q.y > by * p.y))).sort((a, b) => a.x - b.x);
 }
@@ -1361,41 +1391,38 @@ function tweenNums(root) {
 }
 function compare(rows) {
   const c = S.cmp, gp = uniq(rows.map(r => r.gpu)).sort(gpuSort), speed = r => M.interactivity.g(r);
-  $("cmpSub").textContent = `${shortName(S.model)}, ${S.workload}. Frontier per GPU on interactivity (${S.pct.toUpperCase()}); ratio at each target`;
+  $("cmpSub").textContent = `${shortName(S.model)}, ${S.workload}. Frontier per GPU on interactivity (${S.pct.toUpperCase()}); ratio at the target`;
   if (!gp.includes(c.a)) c.a = gp[0];
   if (!gp.includes(c.b) || c.b === c.a) c.b = gp.find(g => g !== c.a);
   opts($("cmpA"), gp, c.a); opts($("cmpB"), gp.filter(g => g !== c.a), c.b);
-  if (!c.t) {
-    const v = rows.map(speed).filter(x => x != null && isFinite(x)).sort((x, y) => x - y);
-    c.t = v.length ? [.25, .5, .75].map(q => Math.max(1, Math.round(v[Math.floor(q * (v.length - 1))]))) : [];
-  }
+  const xs = rows.map(speed).filter(x => x != null && isFinite(x));
+  const top = Math.max(1, Math.ceil(Math.max(...xs, 1)));
+  if (!c.t || c.t.length !== 1) { const v = [...xs].sort((a, b) => a - b); c.t = [v.length ? Math.max(1, Math.round(v[Math.floor(.5 * (v.length - 1))])) : 1]; }
+  c.active = 0;
   $("cmpChartWrap").hidden = !c.b;
-  if (!c.b) { NUMS = new Map(); $("cmpTable").innerHTML = `<tbody><tr><td class="empty l">${gp.length ? "Only one GPU in this selection." : "No runs in this selection."}</td></tr></tbody>`; return; }
+  if (!c.b) { $("cmpTable").innerHTML = `<div class="empty">${gp.length ? "Only one GPU in this selection." : "No runs in this selection."}</div>`; return; }
   drawCompare(rows, c);
-  const best = (g, t) => rows.filter(r => r.gpu === g && speed(r) >= t && r.out_tps_gpu != null).sort((x, y) => y.out_tps_gpu - x.out_tps_gpu)[0];
-  const num = (v, d, alt = "-") => v == null ? alt : `<span data-n="${v}" data-d="${d}">${fmt(v, d)}</span>`;
-  const cells = r => r ? [num(r.out_tps_gpu, 0), num(M.cost_out.g(r), 3, "set price"), `${esc(shortLayout(r))} c${r.concurrency ?? "-"}`] : ["-", "-", "-"];
-  const head = g => `<span class="dot" style="background:${gpuColor(g)}"></span>${esc(gpuLabel(g))}`;
-  const top = Math.max(1, Math.ceil(Math.max(...rows.map(speed).filter(x => x != null && isFinite(x)))));
-  const rowCells = t => { const A = best(c.a, t), B = best(c.b, t);
-    return [...cells(A).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`), ...cells(B).map((v, j) => `<td class="${j === 2 ? "l" : ""}">${v}</td>`)].join("") + `<td>${A && B ? num(A.out_tps_gpu / B.out_tps_gpu, 2) + "x" : "-"}</td>`; };
-  $("cmpTable").innerHTML = `<thead><tr><th class="l">At \u2265 N tok/s/user ${S.pct.toUpperCase()}</th><th>${head(c.a)} out tok/s/GPU</th><th>$/M output (${BASIS_TAG[S.basis]})</th><th class="l">Config</th><th>${head(c.b)} out tok/s/GPU</th><th>$/M output (${BASIS_TAG[S.basis]})</th><th class="l">Config</th><th>${esc(gpuLabel(c.a))} / ${esc(gpuLabel(c.b))}</th></tr></thead><tbody>` +
-    c.t.map((t, i) => `<tr style="cursor:default"><td class="l"><label class="tgtw"><input type="range" class="tgt" min="1" max="${top}" step="1" value="${Math.min(t, top)}" data-i="${i}" aria-label="Target tok/s/user ${i + 1}"><b>${t}</b></label></td>${rowCells(t)}</tr>`).join("") + "</tbody>";
-  tweenNums($("cmpTable"));
-  // dragging updates its own row and the chart in place, so the slider keeps focus
-  $("cmpTable").querySelectorAll(".tgt").forEach(i => {
-    const fill = () => i.style.setProperty("--p", `${100 * (i.value - i.min) / (i.max - i.min || 1)}%`);
-    fill();
-    i.onpointerdown = i.onfocus = () => { if (c.active !== +i.dataset.i) { c.active = +i.dataset.i; drawCompare(rows, c); } };
-    i.oninput = () => {
-      const v = +i.value, tr = i.closest("tr");
-      c.active = +i.dataset.i;
-      c.t[+i.dataset.i] = v; i.nextElementSibling.textContent = v; fill();
-      while (tr.cells.length > 1) tr.deleteCell(1);
-      tr.insertAdjacentHTML("beforeend", rowCells(v));
-      drawCompare(rows, c);
-    };
-  });
+  // output tok/s/GPU read off each GPU's frontier at the target, so the numbers match the lines on the chart
+  const lineOf = g => pareto(rows.filter(r => r.gpu === g).map(r => ({ x: speed(r), y: r.out_tps_gpu, r })).filter(p => p.x != null && p.y != null && isFinite(p.x)), 1, 1);
+  const lines = [lineOf(c.a), lineOf(c.b)];
+  const card = (g, v) => {
+    const cost = v && M.cost_out.g(v.r) != null ? M.cost_out.g(v.r) * v.r.out_tps_gpu / v.y : null;
+    const how = !v ? `no run reaches this speed` : v.est ? `extrapolated past its fastest run, ${fmt(v.last, 0)} tok/s/user` : v.exact ? `measured, ${esc(shortLayout(v.r))} c${v.r.concurrency ?? "-"}` : `on the line near ${esc(shortLayout(v.r))} c${v.r.concurrency ?? "-"}`;
+    return `<div class="rc${v ? "" : " none"}${v && v.est ? " est" : ""}"><div class="rg"><span class="dot" style="background:${gpuColor(g)}"></span>${esc(gpuLabel(g))}</div>
+      <div class="rcv">${v ? `${v.est ? "\u2248" : ""}${fmt(v.y, 0)}` : "-"}<small>tok/s/GPU</small></div>
+      <div class="rs">${cost == null ? (v ? "set a price for $/M" : "&nbsp;") : `${v.est ? "\u2248" : ""}$${fmt(cost, 3)} <small>/ M output, ${BASIS_TAG[S.basis]}</small>`}</div>
+      <div class="rn">${how}</div></div>`;
+  };
+  const read = t => { const A = onLine(lines[0], t), B = onLine(lines[1], t);
+    return card(c.a, A) + card(c.b, B) + `<div class="rc ratio"><div class="rg">${esc(gpuLabel(c.a))} / ${esc(gpuLabel(c.b))}</div><div class="rcv">${A && B ? `${A.est || B.est ? "\u2248" : ""}${fmt(A.y / B.y, 2)}\u00d7` : "-"}</div><div class="rs">output per GPU</div><div class="rn">${A && B ? "at the same tok/s/user" : "needs both GPUs at this speed"}</div></div>`; };
+  const t = Math.min(c.t[0], top);
+  $("cmpTable").innerHTML = `<div class="cmpread">
+    <label class="cmpslide"><span class="k">Target</span><input type="range" class="tgt" min="1" max="${top}" step="1" value="${t}" aria-label="Target tok/s/user"><b>\u2265 ${t}</b><span class="u">tok/s/user ${S.pct.toUpperCase()}</span></label>
+    <div class="cmpcards">${read(t)}</div></div>`;
+  const sl = $("cmpTable").querySelector(".tgt"), fill = () => sl.style.setProperty("--p", `${100 * (sl.value - 1) / (top - 1 || 1)}%`);
+  fill();
+  // dragging redraws the readout and the chart guide in place, so the slider keeps focus
+  sl.oninput = () => { const v = +sl.value; c.t = [v]; sl.nextElementSibling.textContent = `\u2265 ${v}`; fill(); $("cmpTable").querySelector(".cmpcards").innerHTML = read(v); drawCompare(rows, c); };
 }
 /* compare chart: one frontier per GPU on interactivity, target guides with the ratio between the two curves */
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -1452,9 +1479,9 @@ function drawCompare(rows, c) {
   $("cmpLg").innerHTML = sides.map((s, i) => `<span><i class="${i ? "dash" : ""}" style="--c:${cols[i]}"></i>${esc(gpuLabel(s.g))}</span>`).join("") + `<em>${esc(M[yk].s)} \u00b7 ratio ${esc(gpuLabel(c.a))} / ${esc(gpuLabel(c.b))}</em>`;
   const ds = sides.flatMap((s, i) => [
     { label: gpuLabel(s.g), type: "scatter", data: s.front, borderColor: cols[i], backgroundColor: cols[i], pointRadius: 4.5, pointHoverRadius: 7, pointHitRadius: 10, borderWidth: 1.6, order: 1 },
-    { label: gpuLabel(s.g) + " line", type: "line", data: s.front.length > 1 ? s.front : [], borderColor: cols[i], borderWidth: 2.4, pointRadius: 0, pointHitRadius: 0, tension: .18, borderDash: i ? [6, 4] : [], order: 2 }]);
-  const best = (s, t) => s.pts.filter(p => p.x >= t).reduce((m, p) => !m || by * p.y > by * m.y ? p : m, null);
-  const guides = c.t.map(t => { const a = best(sides[0], t), b = best(sides[1], t); return { t, a: a && { x: a.x, y: a.y }, b: b && { x: b.x, y: b.y }, ratio: a && b && b.y ? a.y / b.y : null }; });
+    { label: gpuLabel(s.g) + " line", type: "line", data: s.front.length > 1 ? s.front : [], borderColor: cols[i], borderWidth: 2.4, pointRadius: 0, pointHitRadius: 0, tension: 0, borderDash: i ? [6, 4] : [], order: 2 }]);
+  const at = (s, t) => { const v = onLine(s.front, t); return v && { x: Math.max(t, s.front[0].x), y: v.y }; };
+  const guides = c.t.map(t => { const a = at(sides[0], t), b = at(sides[1], t); return { t, a, b, ratio: a && b && b.y ? a.y / b.y : null }; });
   const first = !charts.cmpChart;
   const o = common(false, first);
   o.scales = { x: axis("interactivity"), y: axis(yk) };
