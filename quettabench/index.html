@@ -60,12 +60,16 @@ h3 { font-size:17px; font-weight:700; letter-spacing:-.025em; }
 .nav-drop a { display:block; padding:.5rem .6rem; border-radius:6px; color:var(--ink); font-size:14px; font-weight:500; text-decoration:none; white-space:nowrap; }
 .nav-drop a:hover, .nav-drop a:focus-visible { background:var(--panel2); }
 .nav-drop a.on { color:var(--accent); }
-@media (max-width:759px) {
-  .nav-link.site, .nav-link.cur { display:none; }
-  .nav-drop { position:static; display:flex; gap:1rem; padding:0; border:0; box-shadow:none; background:none; opacity:1; visibility:visible; transform:none; min-width:0; }
-  .nav-drop a { padding:.5rem 0; font-size:13px; }
-}
+@media (max-width:759px) { .nav-drop { display:none; } }
 @media (prefers-reduced-motion:reduce) { .nav-drop { transition:none; } }
+.subnav { display:flex; gap:2rem; overflow-x:auto; scrollbar-width:none; margin-bottom:8px; background:linear-gradient(var(--rule), var(--rule)) center bottom / calc(100% - 2 * var(--gutter)) 1px no-repeat; }
+.subnav::-webkit-scrollbar { display:none; }
+.subnav a { position:relative; padding:.85rem 0; color:var(--muted); font:500 13.5px var(--sans); text-decoration:none; white-space:nowrap; transition:color .15s; }
+.subnav a:hover { color:var(--ink); }
+.subnav a.on { color:var(--ink); }
+.subnav a::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--accent); transform:scaleX(0); transform-origin:0 center; transition:transform .25s cubic-bezier(.22,1,.36,1); }
+.subnav a.on::after { transform:scaleX(1); }
+@media (max-width:759px) { .subnav { gap:1.25rem; } }
 .nav-icon { display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:50%; background:none; color:var(--ink); cursor:pointer; transition:background .2s, transform .2s; }
 .nav-icon:hover { background:var(--well); transform:translateY(-2px); }
 .theme-toggle svg { width:23px; height:23px; grid-area:1 / 1; }
@@ -502,7 +506,7 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
   .stepbar select, select.auto { min-height:44px; }
 }
 </style>
-<script>try { const t = localStorage.getItem("qb-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script>/* same key and light default as quettaflop.ai, so the theme carries across */ let qfT = "light"; try { const t = localStorage.getItem("qf-theme"); if (t === "dark" || t === "light") qfT = t; } catch (e) {} document.documentElement.dataset.theme = qfT;</script>
 </head>
 <body>
 <header>
@@ -529,6 +533,12 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
       <a class="nav-icon" href="https://www.linkedin.com/company/quettaflop-ai" aria-label="Quettaflop on LinkedIn"><svg viewBox="0 0 24 24" width="23" height="23" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"></rect><circle cx="7.5" cy="8" r="1.1"></circle><path d="M6.5 10.5h2v7h-2zm4 0h2v1c.5-.8 1.3-1.2 2.3-1.2 2 0 2.7 1.2 2.7 3.2v4h-2v-3.7c0-1.1-.3-1.7-1.2-1.7-1.1 0-1.8.7-1.8 1.9v3.5h-2z"></path></svg></a>
       <button class="nav-icon theme-toggle" id="theme" type="button" title="Toggle theme" aria-label="Toggle theme"><svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.2 8.2 0 1 1 9.8 3.5 6.6 6.6 0 0 0 20.5 14.2z"></path></svg><svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.6"></circle><path d="M12 3v2.2M12 18.8V21M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M3 12h2.2M18.8 12H21M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"></path></svg></button>
     </div>
+  </nav>
+  <nav class="subnav wrap" id="subnav" aria-label="QuettaBench">
+    <a href="#/" data-r="home">Overview</a>
+    <a href="#/dashboard" data-r="dashboard">Dashboard</a>
+    <a href="#/efficiency" data-r="efficiency">Efficiency</a>
+    <a href="#/kernel" data-r="kernel">Kernel profiling</a>
   </nav>
 </header>
 
@@ -784,7 +794,7 @@ async function route() {
   const name = page === "gpus" ? "efficiency" : page === "step" ? "kernel" : PAGES.includes(page) ? page : "home";
   for (const p of PAGES) $("r-" + p).hidden = p !== name;
   document.body.classList.toggle("wide", name === "dashboard" || name === "efficiency" || name === "kernel");
-  document.querySelectorAll("#nav a").forEach(x => x.classList.toggle("on", x.dataset.r === name));
+  document.querySelectorAll("#nav a, #subnav a").forEach(x => x.classList.toggle("on", x.dataset.r === name));
   moveInk(); syncSegs();
   if (name === "dashboard") {
     const dash = $("r-dashboard"), m = (MODELS.find(x => x.slug === a) || {}).model || S.model || defaultModel();
@@ -831,7 +841,7 @@ function applyTheme(t) { root.dataset.theme = t; readTheme(); retheme(); }
 const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
 $("theme").onclick = () => {
   const t = isDark() ? "light" : "dark";
-  try { localStorage.setItem("qb-theme", t); } catch (e) {}
+  try { localStorage.setItem("qf-theme", t); } catch (e) {}
   if (REDUCED) return applyTheme(t);
   if (!document.startViewTransition) {
     root.classList.add("theming"); applyTheme(t); setTimeout(() => root.classList.remove("theming"), 300);
@@ -848,9 +858,8 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if
 
 /* nav underline and segmented-control thumbs slide between items */
 function moveInk() {
-  const on = document.querySelector("#nav a.on");
-  document.querySelectorAll("#nav a").forEach(a => a.toggleAttribute("aria-current", a === on));
-  const nav = $("nav"); if (on && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, on.offsetLeft - 16), behavior: REDUCED ? "auto" : "smooth" });
+  document.querySelectorAll("#nav a, #subnav a").forEach(a => a.toggleAttribute("aria-current", a.classList.contains("on")));
+  const on = document.querySelector("#subnav a.on"), nav = $("subnav"); if (on && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, on.offsetLeft - 16), behavior: REDUCED ? "auto" : "smooth" });
 }
 function syncSegs() {
   document.querySelectorAll(".seg").forEach(el => {
