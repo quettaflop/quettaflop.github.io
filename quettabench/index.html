@@ -1264,6 +1264,12 @@ function seriesFor(rows, xk, yk, optimal, universe) {
     out.push({ label: k, type: "scatter", data: shown, borderColor: c, backgroundColor: c, pointBackgroundColor: shown.map(p => p.front ? c : "transparent"), pointBorderColor: c,
       pointStyle: shown.map(p => CFG_SHAPE[shortLayout(p.r)] || "circle"), pointRadius: shown.map(p => ["cross", "crossRot", "star"].includes(CFG_SHAPE[shortLayout(p.r)]) ? 6.5 : 5), pointHoverRadius: 8, pointHitRadius: 9, borderWidth: 1.8, order: 1 });
     out.push({ label: k + " line", type: "line", data: front.length > 1 ? front : [], borderColor: c, borderWidth: 2.2, pointRadius: 0, pointHoverRadius: 0, pointHitRadius: 0, tension: .18, borderDash: idx ? [6, 4] : [], order: 2 });
+    if (!optimal) {
+      // with every point shown, each layout gets its own faint line through its concurrency sweep
+      const layouts = {}; pts.forEach(p => (layouts[shortLayout(p.r)] ||= []).push(p));
+      Object.entries(layouts).forEach(([l, lp]) => lp.length > 1 && out.push({ label: `${k} ${l} line`, type: "line", data: lp.slice().sort((a, b) => a.r.concurrency - b.r.concurrency),
+        borderColor: rgba(c, .45), borderWidth: 1.2, pointRadius: 0, pointHoverRadius: 0, pointHitRadius: 0, tension: .18, order: 3 }));
+    }
   });
   return out;
 }
