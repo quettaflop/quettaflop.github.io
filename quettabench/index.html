@@ -224,6 +224,7 @@ html.theming *, html.theming *::before, html.theming *::after { transition:backg
 .rc.none .rcv, .rc.none .rs { color:var(--muted); }
 .rc.ratio { background:var(--panel2); }
 .rc.ratio .rcv { color:var(--accent); }
+.linkbtn { border:0; background:none; padding:0; color:var(--accent); font:inherit; cursor:pointer; text-decoration:underline; }
 .tgtw { display:flex; align-items:center; gap:10px; min-width:170px; }
 .tgtw b { min-width:3ch; font:600 13px var(--mono); color:var(--ink); text-align:right; }
 .tgt { -webkit-appearance:none; appearance:none; width:120px; height:4px; border-radius:2px; background:linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 50%) 100% no-repeat, var(--rule); cursor:pointer; }
@@ -599,7 +600,7 @@ footer .c { font:11px ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono
       </details>
       <details class="pricesd" id="tokPop" hidden><summary class="btn">Token prices</summary>
         <div class="pcard slim card">
-          <div class="lbl">$ per million tokens. Sets revenue.</div>
+          <div class="lbl">$ per million tokens. Sets revenue.</div><div class="lbl" id="tokSrc"></div>
           <div class="tokp" id="tokPrices"></div>
         </div>
       </details>
@@ -714,8 +715,12 @@ try { Object.assign(PRICES, JSON.parse(localStorage.getItem("qb-prices") || "{}"
 // same $/GPU-hr as the Efficiency page: efficiency.gpu_hour_rate, computed at build time
 const OWN = Object.fromEntries(Object.entries(DATA.eff.prices).map(([g, p]) => [g, p.rate]));
 const TOKEN_PRICE_KEYS = [["input", "Input, uncached"], ["cached", "Input, cached"], ["output", "Output"]];
-let TOKP = { input: 1, cached: 0.1, output: 1 };
-try { const t = JSON.parse(localStorage.getItem("qb-tokprices") || "{}"); for (const [k] of TOKEN_PRICE_KEYS) if (t[k] >= 0) TOKP[k] = t[k]; } catch (e) {}
+// token prices per model: the OpenRouter list price for that exact checkpoint unless the viewer typed their own
+const API = DATA.api_prices || { prices: {} };
+let TOKP_OWN = {};
+try { TOKP_OWN = JSON.parse(localStorage.getItem("qb-tokprices-v2") || "{}"); } catch (e) {}
+const listPrice = m => API.prices[m] || null;
+const tokp = (m = S.model) => TOKP_OWN[m] || listPrice(m);
 const rate = r => (S.basis === "own" ? OWN : PRICES)[r.gpu] || null;
 const BASIS_TAG = { own: "owned, 3-yr TCO", rent: "rented, $/GPU-hr" };
 const withTag = t => { const tag = BASIS_TAG[S.basis]; return /\)$/.test(t) ? t.slice(0, -1) + ", " + tag + ")" : `${t} (${tag})`; };
@@ -725,11 +730,15 @@ const seconds = v => v == null ? null : v / 1000;
 const costPerM = f => r => { const t = r[f], c = rate(r); return t && c ? c * 1e6 / (t * 3600) : null; };
 const tokensPerDollar = f => r => { const t = r[f], c = rate(r); return t && c ? t * 3600 / c : null; };
 // billed tokens at the token prices, per GPU-hour; input not recorded as cached is billed uncached
-const revenue = r => {
-  if (!r.in_tok || !r.out_tok || !r.gpu_seconds) return null;
-  const cached = Math.min(r.cached_tok || 0, r.in_tok);
-  return ((r.in_tok - cached) * TOKP.input + cached * TOKP.cached + r.out_tok * TOKP.output) / 1e6 * 3600 / r.gpu_seconds;
+// [fresh input, cached input, output] in $ per GPU-hour
+const revenueSplit = r => {
+  const p = tokp(r.model);
+  if (!p || !r.in_tok || !r.out_tok || !r.gpu_seconds) return null;
+  const cached = Math.min(r.cached_tok || 0, r.in_tok), k = 3600 / r.gpu_seconds / 1e6;
+  return [(r.in_tok - cached) * p.input * k, cached * p.cached * k, r.out_tok * p.output * k];
 };
+const revenue = r => { const v = revenueSplit(r); return v ? v[0] + v[1] + v[2] : null; };
+const splitText = r => { const v = revenueSplit(r), t = v && v[0] + v[1] + v[2]; return t ? ["Fresh input", "Cached input", "Output"].map((l, i) => `${l} $${fmt(v[i], 2)} (${Math.round(100 * v[i] / t)}%)`).join(" \u00b7 ") : ""; };
 const M = {
   interactivity: { l: "Interactivity (tok/s/user)", pct: 1, g: pctVal("interactivity_p50", "interactivity"), b: 1, d: 1 },
   interactivity_p50: { l: "Interactivity P50 (tok/s/user)", g: r => r.interactivity_p50 ?? null, b: 1, d: 1 },
@@ -738,6 +747,8 @@ const M = {
   e2e: { l: "End-to-end latency (s)", pct: 1, g: r => seconds(pctVal("e2e_p50", "e2e_p90")(r)), b: -1, d: 2 },
   ttft: { l: "Time to first token (ms)", pct: 1, g: pctVal("ttft_p50", "ttft_p90"), b: -1, d: 0 },
   revenue: { l: "Revenue per GPU-hr ($/GPU-hr)", o: "Revenue ($/GPU-hr)", g: revenue, b: 1, d: 2, basis: 1 },
+  // what hosting earns: tokens sold at the market price minus what the GPU-hour costs on the chosen basis
+  profit: { l: "Profit per GPU-hr ($/GPU-hr)", o: "Profit ($/GPU-hr)", g: r => { const v = revenue(r), c = rate(r); return v == null || !c ? null : v - c; }, b: 1, d: 2, basis: 1 },
 };
 for (const [k, name, f] of [["total", "Total", "total_tps_gpu"], ["out", "Output", "out_tps_gpu"], ["in", "Input", "in_tps_gpu"]]) {
   M[f] = { l: `${name} throughput per GPU (tok/s)`, o: name, g: r => r[f] ?? null, b: 1, d: 0 };
@@ -748,7 +759,7 @@ for (const [k, name, f] of [["total", "Total", "total_tps_gpu"], ["out", "Output
 for (const m of Object.values(M)) Object.defineProperty(m, "s", { get() { return m.l.replace(/ \(.*/, "") + (m.pct ? " " + S.pct.toUpperCase() : ""); } });
 const X_KEYS = ["interactivity", "e2e_norm", "e2e", "ttft"];
 const Y_GROUPS = [["Throughput per GPU", ["total_tps_gpu", "out_tps_gpu", "in_tps_gpu"]], ["Cost per million tokens", ["cost_total", "cost_out", "cost_in"]],
-  ["Tokens per $1", ["tpd_total", "tpd_out", "tpd_in"]], ["Revenue per GPU-hour", ["revenue"]]];
+  ["Tokens per $1", ["tpd_total", "tpd_out", "tpd_in"]], ["Per GPU-hour", ["revenue", "profit"]]];
 const Y_KEYS = Y_GROUPS.flatMap(g => g[1]);
 const DEFAULT_X = "interactivity", DEFAULT_Y = "out_tps_gpu";
 const LEGACY_X = { interactivity_p50: ["interactivity", "p50"], interactivity_p95: ["interactivity", "p90"], ttft_p50: ["ttft", "p50"], ttft_p90: ["ttft", "p90"], e2e_p50: ["e2e", "p50"], e2e_p90: ["e2e", "p90"] };
@@ -1043,8 +1054,16 @@ function prices() {
 }
 
 function tokenPrices() {
-  $("tokPrices").innerHTML = TOKEN_PRICE_KEYS.map(([k, l]) => `<label for="tp-${k}">${l}</label><input id="tp-${k}" type="number" min="0" step="0.05" value="${TOKP[k]}" data-k="${k}">`).join("");
-  $("tokPrices").querySelectorAll("input").forEach(i => i.oninput = () => { TOKP[i.dataset.k] = Math.max(0, parseFloat(i.value) || 0); try { localStorage.setItem("qb-tokprices", JSON.stringify(TOKP)); } catch (e) {} renderDash(); });
+  const lp = listPrice(S.model), cur = tokp() || {}, own = !!TOKP_OWN[S.model];
+  const save = () => { try { localStorage.setItem("qb-tokprices-v2", JSON.stringify(TOKP_OWN)); } catch (e) {} };
+  $("tokSrc").innerHTML = lp ? `${own ? "Your prices." : "OpenRouter list price"} for ${esc(shortName(S.model))}, ${esc(API.date)}${lp.cache_listed ? "" : "; no cached-input discount listed"}.${own ? ' <button type="button" class="linkbtn" id="tokReset">Use list price</button>' : ""}`
+    : `No OpenRouter listing for ${esc(shortName(S.model))}. Enter prices to see revenue.`;
+  $("tokPrices").innerHTML = TOKEN_PRICE_KEYS.map(([k, l]) => `<label for="tp-${k}">${l}</label><input id="tp-${k}" type="number" min="0" step="0.01" value="${cur[k] ?? ""}" data-k="${k}">`).join("");
+  $("tokPrices").querySelectorAll("input").forEach(i => i.oninput = () => {
+    TOKP_OWN[S.model] = { ...(TOKP_OWN[S.model] || lp || { input: 0, cached: 0, output: 0 }), [i.dataset.k]: Math.max(0, parseFloat(i.value) || 0) };
+    save(); renderDash();
+  });
+  if ($("tokReset")) $("tokReset").onclick = () => { delete TOKP_OWN[S.model]; save(); tokenPrices(); renderDash(); };
 }
 
 // value of a frontier (sorted by x) at x = t: interpolated between measured points,
@@ -1237,7 +1256,7 @@ function axis(k) {
 }
 function tip(ctx) {
   const r = ctx.raw.r; if (!r) return "";
-  return [`${shortLayout(r)} on ${gpuLabel(r.gpu)}${precTag(r)} ×${r.gpu_count} · ${r.concurrency ?? "-"} concurrent`, r.recipe ? "FlashInfer sparse-MLA attention" : "", `${M[S.x]?.s || ""}: ${fmt(ctx.raw.x, 1)}   ${M[S.y]?.s || ""}: ${fmt(ctx.raw.y, M[S.y]?.d ?? 1)}`, `${r.engine || ""} · ${r.date}`].filter(Boolean);
+  return [`${shortLayout(r)} on ${gpuLabel(r.gpu)}${precTag(r)} ×${r.gpu_count} · ${r.concurrency ?? "-"} concurrent`, r.recipe ? "FlashInfer sparse-MLA attention" : "", `${M[S.x]?.s || ""}: ${fmt(ctx.raw.x, 1)}   ${M[S.y]?.s || ""}: ${fmt(ctx.raw.y, M[S.y]?.d ?? 1)}`, S.y === "revenue" || S.y === "profit" ? splitText(r) + (S.y === "profit" && rate(r) ? ` \u00b7 GPU-hour cost $${fmt(rate(r), 2)}` : "") : "", `${r.engine || ""} · ${r.date}`].filter(Boolean);
 }
 // one marker shape per distinct config in view, so the chart reads without text on the points
 const SHAPES = ["circle", "rect", "triangle", "rectRot", "cross", "crossRot", "star", "rectRounded"];
@@ -1299,7 +1318,7 @@ function renderDash(full = false) {
   $("basisSeg").hidden = !M[S.y].basis; $("basisSeg").classList.toggle("dis", S.y === "revenue");
   $("basisSeg").title = S.y === "revenue" ? "Revenue does not use GPU cost" : "";
   document.querySelectorAll(".basisSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === S.basis));
-  $("rentPop").hidden = S.basis !== "rent"; $("tokPop").hidden = S.y !== "revenue";
+  $("rentPop").hidden = S.basis !== "rent"; $("tokPop").hidden = S.y !== "revenue" && S.y !== "profit";
   $("cTitle").textContent = `${S.model.split("/").pop()} \u00b7 ${S.workload}`;
   const wavg = k => { const v = rows.filter(r => r[k] && r.completed); const n = v.reduce((a, r) => a + r.completed, 0); return n ? v.reduce((a, r) => a + r[k] * r.completed, 0) / n : null; };
   const isl = wavg("isl"), osl = wavg("osl");
@@ -1307,7 +1326,7 @@ function renderDash(full = false) {
     S.x === "interactivity" ? "Interactivity = 1000 / TPOT." : S.x === "e2e_norm" ? "E2E-normalised = mean output tokens / E2E latency." : "",
     priced ? (S.basis === "own" ? "Owned: 3-year ownership $/GPU-hr, as on Efficiency." : "Rented: GPU prices.") : "",
     "No latency SLO applied.",
-    S.y === "revenue" ? `Revenue at $${fmt(TOKP.input, 2)} input, $${fmt(TOKP.cached, 2)} cached, $${fmt(TOKP.output, 2)} output per M tokens.` : ""].filter(Boolean).join(" ");
+    S.y === "revenue" || S.y === "profit" ? (tokp() ? `Revenue at ${TOKP_OWN[S.model] ? "your prices" : `OpenRouter list prices (${API.date})`}: $${fmt(tokp().input, 3)} input, $${fmt(tokp().cached, 3)} cached, $${fmt(tokp().output, 3)} output per M tokens.${S.y === "profit" ? ` Minus the GPU-hour cost, ${BASIS_TAG[S.basis]}.` : ""} Hover a point for where it comes from.` : "No list price for this model: set token prices to see revenue.") : ""].filter(Boolean).join(" ");
   $("cSub").textContent = `${M[S.y].s} vs ${M[S.x].s}` + (priced ? ` \u00b7 ${BASIS_TAG[S.basis]}` : "") + (missingPrice ? " \u00b7 set a price for every GPU" : "");
   $("pctSeg").querySelectorAll("button").forEach(b => { b.classList.toggle("on", b.dataset.v === S.pct); b.onclick = () => { S.pct = b.dataset.v; renderDash(); }; });
   const recipe = rows.some(r => r.recipe);
@@ -1373,7 +1392,7 @@ function detail(r) {
   const f = [["Engine", r.engine], ["Date", r.date], ["Serving config", shortLayout(r)], ["Workload", r.workload], ["Concurrency", r.concurrency],
     ["tok/s/user P50 / P90 / P95", `${fmt(M.interactivity_p50.g(r), 1)} / ${fmt(r.interactivity, 1)} / ${fmt(M.interactivity_p95.g(r), 1)}`], ["Total tok/s/GPU", fmt(r.total_tps_gpu, 1)], ["Output tok/s/GPU", fmt(r.out_tps_gpu, 1)], ["Input tok/s/GPU", fmt(r.in_tps_gpu, 1)], ["E2E tok/s/user P50 / P90", r.e2e_tps_p50 == null ? "" : `${fmt(r.e2e_tps_p50, 1)} / ${fmt(r.e2e_tps_p90, 1)}`],
     ["TTFT P50 / P90 (ms)", `${fmt(r.ttft_p50, 0)} / ${fmt(r.ttft_p90, 0)}`], ["TPOT P50 / P90 (ms)", `${fmt(r.tpot_p50, 2)} / ${fmt(r.tpot_p90, 2)}`], ["E2E P50 / P90 (ms)", `${fmt(r.e2e_p50, 0)} / ${fmt(r.e2e_p90, 0)}`],
-    ["Accepted tokens per step", r.accept_len == null ? "" : fmt(r.accept_len, 2)], [`$/M output (${BASIS_TAG[S.basis]})`, M.cost_out.g(r) == null ? "set a price" : fmt(M.cost_out.g(r), 3)], ["Revenue $/GPU-hr", fmt(M.revenue.g(r), 2)], ["Cache hit", r.cache_hit == null ? "" : fmt(100 * r.cache_hit, 1) + "%"],
+    ["Accepted tokens per step", r.accept_len == null ? "" : fmt(r.accept_len, 2)], [`$/M output (${BASIS_TAG[S.basis]})`, M.cost_out.g(r) == null ? "set a price" : fmt(M.cost_out.g(r), 3)], ["Revenue $/GPU-hr", fmt(M.revenue.g(r), 2)], ["Revenue from", splitText(r)], [`Profit $/GPU-hr (${BASIS_TAG[S.basis]})`, M.profit.g(r) == null ? "" : fmt(M.profit.g(r), 2)], ["Cache hit", r.cache_hit == null ? "" : fmt(100 * r.cache_hit, 1) + "%"],
     ["Requests completed / failed", r.completed == null ? "" : `${r.completed} / ${r.failed ?? 0}`], ["Note", (r.flags || []).includes("low_n") ? "Fewer than 5 requests" : ""]].filter(([, v]) => v !== "" && v != null);
   $("detail").innerHTML = `<div class="dwrap"><div class="dpad"><div class="charthead" style="padding:0"><div><h3>${esc(cfgKey(r))} \u00b7 concurrency ${esc(r.concurrency)}</h3></div><button class="iconbtn" onclick="closeDetail()" aria-label="Close">&times;</button></div><dl>${f.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></div></div>`;
   $("detail").classList.add("on"); selectPoint(r);
